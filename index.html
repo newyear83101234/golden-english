@@ -56,8 +56,17 @@
 
   <main id="lyrics" class="lyrics" aria-label="歌詞"></main>
 
-  <footer class="ctrlbar">
-    <button id="playBtn" class="btn btn-play" aria-label="播放">▶</button>
+  <footer class="ctrlzone">
+    <div class="seekrow">
+      <span id="tCur" class="tlabel">0:00</span>
+      <input id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="播放進度">
+      <span id="tTot" class="tlabel">0:00</span>
+    </div>
+    <div class="ctrlbar">
+      <button id="prevBtn" class="btn btn-nav" aria-label="上一句">⏮</button>
+      <button id="playBtn" class="btn btn-play" aria-label="播放">▶</button>
+      <button id="nextBtn" class="btn btn-nav" aria-label="下一句">⏭</button>
+    </div>
   </footer>
 </section>
 
@@ -65,12 +74,19 @@
 <div id="cardWrap" class="card-wrap" hidden>
   <div class="card-backdrop" id="cardBackdrop"></div>
   <div class="card" role="dialog" aria-modal="true">
+    <button class="card-close" id="cardClose" aria-label="關閉">✕</button>
     <div class="card-star" id="cardStar" hidden>⭐ +1</div>
     <button class="card-word" id="cardWord">golden</button>
-    <p class="card-tap-hint">點單字再聽一次 🔊</p>
+    <div class="speed-row">
+      <p class="card-tap-hint">點單字再聽一次 🔊</p>
+      <button id="btnSlow" class="speed-btn">🐢 慢慢唸</button>
+    </div>
     <button class="card-zh" id="cardZh" aria-label="中文意思"></button>
     <div class="card-btns">
-      <button class="btn btn-violet" id="btnSung">🎵 歌裡怎麼唱</button>
+      <button class="btn btn-violet" id="btnLine">🎵 唱這一句</button>
+      <button class="btn btn-lite" id="btnWord">🔂 只唱這個字</button>
+    </div>
+    <div class="card-btns">
       <button class="btn btn-gold" id="btnResume">▶ 繼續唱歌</button>
     </div>
   </div>

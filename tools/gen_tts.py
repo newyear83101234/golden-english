@@ -23,9 +23,11 @@ async def main():
     os.makedirs("assets/w", exist_ok=True)
     os.makedirs("assets/z", exist_ok=True)
     jobs = []
+    os.makedirs("assets/s", exist_ok=True)
     for key, v in data["vocab"].items():
         voice = KO_VOICE if v.get("lang") == "ko" else EN_VOICE
         jobs.append((v["say"], voice, "-15%", f"assets/w/{key}.mp3"))
+        jobs.append((v["say"], voice, "-45%", f"assets/s/{key}.mp3"))  # 🐢 慢慢唸版
         jobs.append((v["zh"], ZH_VOICE, "-10%", f"assets/z/{key}.mp3"))
     sem = asyncio.Semaphore(4)
     results = {"ok": 0, "skip": 0, "fail": []}

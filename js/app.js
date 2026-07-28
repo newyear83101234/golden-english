@@ -12,7 +12,10 @@ const PW = "000";
 
 let ctx = null;          // AudioContext
 let songBuf = null;      // 整首副歌 AudioBuffer
-let voiceBuf = {};       // { "w/key": AudioBuffer, "z/key": AudioBuffer }
+let voiceBuf = {};       // { "w/key": 正常速, "s/key": 慢速, "z/key": 中文 }
+let slowMode = localStorage.getItem("golden-slow") === "1"; // 🐢 慢慢唸開關（記住設定）
+/** 單字發音用哪一套：慢速模式且慢速檔有載到 → s，否則 w */
+const wordKind = (key) => (slowMode && voiceBuf[`s/${key}`] ? "s" : "w");
 let data = null;         // 歌詞 + 單字卡資料
 let wordEls = [];        // [{el, s, e, k}] 依時間排序
 let lineEls = [];        // [{el, s, e}]
@@ -105,7 +108,7 @@ function renderLyrics() {
       b.textContent = w.t;
       b.dataset.k = w.k;
       if (learned.has(w.k)) b.classList.add("learned");
-      b.addEventListener("click", () => openCard(w));
+      b.addEventListener("click", () => openCard(w, line));
       div.appendChild(b);
       wordEls.push({ el: b, s: w.s, e: w.e, k: w.k });
     });
@@ -114,11 +117,11 @@ function renderLyrics() {
   });
 }
 
-// --- 亮字循環 ---
+// --- 亮字與進度條 ---
 let lastLineIdx = -1;
-function tick() {
-  if (!playing) return;
-  const t = now();
+
+/** 依時間點 t 更新亮字/亮行/自動捲動（播放中每幀呼叫；暫停拖進度條後也呼叫一次） */
+function renderAt(t) {
   let lineIdx = -1;
   lineEls.forEach((l, i) => {
     const active = t >= l.s - 0.25 && t <= l.e + 0.25;
@@ -131,16 +134,38 @@ function tick() {
     lineEls[lineIdx].el.scrollIntoView({ block: "center", behavior: "smooth" });
   }
   wordEls.forEach((w) => w.el.classList.toggle("on", t >= w.s && t <= w.e + 0.06));
-  requestAnimationFrame(tick);
 }
 
-// --- 學習卡 ---
-let cardWord = null, resumeAt = 0;
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+let seeking = false, wasPlayingBeforeSeek = false;
 
-async function openCard(w) {
+function updateSeekUI() {
+  const t = now();
+  if (!seeking) {
+    const el = $("#seek");
+    el.value = Math.round((t / songBuf.duration) * 1000);
+    el.style.setProperty("--fill", `${(t / songBuf.duration) * 100}%`);
+  }
+  $("#tCur").textContent = fmt(t);
+}
+
+function tick() {
+  if (!playing) return;
+  renderAt(now());
+  updateSeekUI();
+  requestAnimationFrame(tick);
+}
+// rAF 在視窗被遮住/切走時會被瀏覽器凍結，但音樂繼續播——低頻 interval 兜底，回到前景畫面立刻是對的
+setInterval(() => { if (playing && songBuf && !seeking) { renderAt(now()); updateSeekUI(); } }, 250);
+
+// --- 學習卡 ---
+let cardWord = null, cardLine = null, resumeAt = 0;
+
+async function openCard(w, line) {
   pause();
   stopSeg();
   cardWord = w;
+  cardLine = line;
   resumeAt = Math.max(0, w.s - 0.8);
   const v = data.vocab[w.k];
 
@@ -161,7 +186,10 @@ async function openCard(w) {
       const TONES = "ˊˇˋ˙";
       [...zyStr].forEach((c) => {
         const s = document.createElement(TONES.includes(c) ? "b" : "i");
-        if (TONES.includes(c)) s.className = c === "˙" ? "tone tone-top" : "tone";
+        if (TONES.includes(c)) {
+          s.className = c === "˙" ? "tone tone-top" : "tone";
+          if (c !== "˙") zy.classList.add("zy-side"); // 側邊聲調要預留空間，不然會被隔壁字擋到
+        }
         s.textContent = c;
         zy.appendChild(s);
       });
@@ -182,10 +210,12 @@ async function openCard(w) {
 
   $("#cardWrap").hidden = false;
 
-  // 自動：英文 → 停一下 → 中文
+  $("#btnSlow").classList.toggle("on", slowMode);
+
+  // 自動：原文 → 停一下 → 中文
   const token = ++seqToken;
   $("#cardWord").classList.add("speaking");
-  const spoke = await playVoice("w", w.k);
+  const spoke = await playVoice(wordKind(w.k), w.k);
   $("#cardWord").classList.remove("speaking");
   // 語音缺檔時給小孩看得懂的提示，不要靜默沒聲音
   document.querySelector(".card-tap-hint").textContent =
@@ -218,6 +248,7 @@ function updateStars(pop) {
 function onSongEnd() {
   $("#playBtn").textContent = "▶";
   $("#playBtn").classList.remove("playing");
+  updateSeekUI();
   $("#finStars").textContent = learned.size;
   $("#fin").hidden = false;
 }
@@ -235,7 +266,7 @@ function fetchBin(url) {
 async function loadAll(pw) {
   const fill = $("#loadFill");
   let done = 0;
-  const total = 2 + 64; // data+song 解密 + 64 個語音
+  let total = 2; // data + song，語音數量等資料解開後補上
   const step = () => { done++; fill.style.width = `${Math.round((done / total) * 100)}%`; };
 
   // 1) 解密資料——只有「解密失敗」才是密碼錯，網路失敗要分開講
@@ -259,10 +290,11 @@ async function loadAll(pw) {
   songBuf = await ctx.decodeAudioData(songPlain);
   step();
 
-  // 3) 單字語音（英文 + 中文），失敗的個別跳過不擋全場
+  // 3) 單字語音（正常速 w / 慢速 s / 中文 z），失敗的個別跳過不擋全場
   const keys = Object.keys(data.vocab);
+  total = 2 + keys.length * 3;
   await Promise.all(
-    keys.flatMap((k) => ["w", "z"].map(async (kind) => {
+    keys.flatMap((k) => ["w", "s", "z"].map(async (kind) => {
       try {
         const raw = await fetchBin(`assets/${kind}/${k}.mp3`);
         voiceBuf[`${kind}/${k}`] = await ctx.decodeAudioData(raw);
@@ -300,6 +332,8 @@ $("#startBtn").addEventListener("click", async () => {
   }
   renderLyrics();
   updateStars(false);
+  $("#tTot").textContent = fmt(songBuf.duration);
+  updateSeekUI();
   $("#loading").hidden = true;
   $("#stage").hidden = false;
 });
@@ -317,16 +351,72 @@ $("#playBtn").addEventListener("click", () => {
   play();
 });
 
+// --- 上一句 / 下一句（跟音樂 App 一樣：進這句夠久按⏮先回句首，再按才跳前一句）---
+function currentLineIdx() {
+  const t = now();
+  let idx = 0;
+  data.lines.forEach((l, i) => { if (t >= l.s - 0.3) idx = i; });
+  return idx;
+}
+function playFromLine(i) {
+  pause();
+  $("#fin").hidden = true;
+  play(Math.max(0, data.lines[i].s - 0.3));
+}
+$("#prevBtn").addEventListener("click", () => {
+  const t = now();
+  const i = currentLineIdx();
+  playFromLine(t - data.lines[i].s > 1.5 || i === 0 ? i : i - 1);
+});
+$("#nextBtn").addEventListener("click", () => {
+  const i = currentLineIdx();
+  if (i < data.lines.length - 1) playFromLine(i + 1);
+});
+
+// --- 進度條拖曳（跟 YouTube 一樣：拖到哪播到哪；拖時暫停、放開恢復原狀態）---
+$("#seek").addEventListener("input", (ev) => {
+  if (!seeking) {
+    seeking = true;
+    wasPlayingBeforeSeek = playing;
+    pause();
+  }
+  const t = (ev.target.value / 1000) * songBuf.duration;
+  ev.target.style.setProperty("--fill", `${(t / songBuf.duration) * 100}%`);
+  $("#tCur").textContent = fmt(t);
+  renderAt(t); // 拖的時候歌詞跟著捲，好找段落
+});
+$("#seek").addEventListener("change", (ev) => {
+  const t = (ev.target.value / 1000) * songBuf.duration;
+  seeking = false;
+  $("#fin").hidden = true;
+  offset = Math.min(t, songBuf.duration - 0.05);
+  if (wasPlayingBeforeSeek) play(offset);
+  else { renderAt(offset); updateSeekUI(); }
+});
+
 $("#cardWord").addEventListener("click", async () => {
   if (!cardWord) return;
   const token = ++seqToken;
   $("#cardWord").classList.add("speaking");
-  await playVoice("w", cardWord.k);
+  await playVoice(wordKind(cardWord.k), cardWord.k);
+  if (token === seqToken) $("#cardWord").classList.remove("speaking");
+});
+$("#btnSlow").addEventListener("click", async () => {
+  slowMode = !slowMode;
+  localStorage.setItem("golden-slow", slowMode ? "1" : "0");
+  $("#btnSlow").classList.toggle("on", slowMode);
+  // 切換後立刻用新速度唸一次，小孩馬上聽到差別
+  if (!cardWord) return;
+  const token = ++seqToken;
+  $("#cardWord").classList.add("speaking");
+  await playVoice(wordKind(cardWord.k), cardWord.k);
   if (token === seqToken) $("#cardWord").classList.remove("speaking");
 });
 $("#cardZh").addEventListener("click", () => { seqToken++; playVoice("z", cardWord.k); });
-$("#btnSung").addEventListener("click", () => { seqToken++; playSegment(cardWord.s, cardWord.e); });
+$("#btnLine").addEventListener("click", () => { seqToken++; playSegment(cardLine.s, cardLine.e); });
+$("#btnWord").addEventListener("click", () => { seqToken++; playSegment(cardWord.s, cardWord.e); });
 $("#btnResume").addEventListener("click", () => closeCard(true));
+$("#cardClose").addEventListener("click", () => closeCard(false));
 $("#cardBackdrop").addEventListener("click", () => closeCard(false));
 
 $("#btnAgain").addEventListener("click", () => {
