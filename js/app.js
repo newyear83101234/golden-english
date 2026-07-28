@@ -7,6 +7,8 @@ import { decryptSong } from "./song-crypto.js";
 
 const $ = (s) => document.querySelector(s);
 const LS_KEY = "golden-learned-v1";
+// 資產仍以 AES 加密存放（版權歌曲不在公開 repo 裸奔），但入口不設密碼：鑰匙直接內建，小孩按「開始」就玩
+const PW = "000";
 
 let ctx = null;          // AudioContext
 let songBuf = null;      // 整首副歌 AudioBuffer
@@ -89,24 +91,24 @@ function renderLyrics() {
   box.innerHTML = "";
   data.lines.forEach((line) => {
     const div = document.createElement("div");
-    if (line.ko) {
-      div.className = "line line-ko";
-      div.innerHTML = `<span class="kotext"></span><span class="kozh"></span>`;
-      div.querySelector(".kotext").textContent = line.text;
-      div.querySelector(".kozh").textContent = line.zh;
-    } else {
-      div.className = "line";
-      line.words.forEach((w) => {
-        const b = document.createElement("button");
-        b.className = "w";
-        b.textContent = w.t;
-        b.dataset.k = w.k;
-        if (learned.has(w.k)) b.classList.add("learned");
-        b.addEventListener("click", () => openCard(w));
-        div.appendChild(b);
-        wordEls.push({ el: b, s: w.s, e: w.e, k: w.k });
-      });
+    const isKo = line.lang === "ko";
+    div.className = isKo ? "line line-ko" : "line";
+    if (isKo) {
+      const tag = document.createElement("span");
+      tag.className = "ko-tag";
+      tag.textContent = "韓文";
+      div.appendChild(tag);
     }
+    line.words.forEach((w) => {
+      const b = document.createElement("button");
+      b.className = isKo ? "w w-ko" : "w";
+      b.textContent = w.t;
+      b.dataset.k = w.k;
+      if (learned.has(w.k)) b.classList.add("learned");
+      b.addEventListener("click", () => openCard(w));
+      div.appendChild(b);
+      wordEls.push({ el: b, s: w.s, e: w.e, k: w.k });
+    });
     box.appendChild(div);
     lineEls.push({ el: div, s: line.s, e: line.e });
   });
@@ -273,36 +275,28 @@ async function loadAll(pw) {
 }
 
 // --- 事件 ---
-let submitting = false;
-$("#gateForm").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  if (submitting) return; // 網路慢時小孩連點「進場」不重複載入
-  const pw = $("#pw").value.trim();
-  if (!pw) return;
+let starting = false;
+$("#startBtn").addEventListener("click", async () => {
+  if (starting) return; // 網路慢時小孩連點「開始」不重複載入
   // iOS：必須在使用者手勢裡建立/喚醒 AudioContext
   if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
   ctx.resume();
   $("#gateErr").hidden = true;
-  submitting = true;
+  starting = true;
   try {
-    await loadAll(pw);
+    await loadAll(PW);
   } catch (e) {
-    console.warn("解鎖失敗", e);
-    const isPw = e && e.message === "PW_WRONG";
-    $("#gateErr").textContent = isPw
-      ? "密碼不對喔，再試一次！"
-      : "網路好像怪怪的，檢查一下 WiFi 再按一次進場！";
+    console.warn("載入失敗", e);
     const box = document.querySelector(".gate-box");
     box.classList.remove("shake");
     void box.offsetWidth;
     box.classList.add("shake");
     $("#gateErr").hidden = false;
-    if (isPw) $("#pw").value = "";
     $("#loading").hidden = true;
     $("#gate").hidden = false;
     return;
   } finally {
-    submitting = false;
+    starting = false;
   }
   renderLyrics();
   updateStars(false);

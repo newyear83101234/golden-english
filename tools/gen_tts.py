@@ -10,6 +10,7 @@ import edge_tts
 
 EN_VOICE = "en-US-JennyNeural"
 ZH_VOICE = "zh-TW-HsiaoChenNeural"
+KO_VOICE = "ko-KR-SunHiNeural"
 
 async def gen(text, voice, rate, out):
     if os.path.exists(out) and os.path.getsize(out) > 0:
@@ -23,7 +24,8 @@ async def main():
     os.makedirs("assets/z", exist_ok=True)
     jobs = []
     for key, v in data["vocab"].items():
-        jobs.append((v["say"], EN_VOICE, "-15%", f"assets/w/{key}.mp3"))
+        voice = KO_VOICE if v.get("lang") == "ko" else EN_VOICE
+        jobs.append((v["say"], voice, "-15%", f"assets/w/{key}.mp3"))
         jobs.append((v["zh"], ZH_VOICE, "-10%", f"assets/z/{key}.mp3"))
     sem = asyncio.Semaphore(4)
     results = {"ok": 0, "skip": 0, "fail": []}

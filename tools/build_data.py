@@ -43,6 +43,10 @@ VOCAB = {
     "oh":       ("Oh-oh-oh", "oh",       "喔",     ["ㄛ"]),
     "with":     ("with",     "with",     "用",     ["ㄩㄥˋ"]),
     "voices":   ("voices",   "voices",   "聲音",   ["ㄕㄥ", "ㄧㄣ"]),
+    # 韓文單字（阿葉指示：韓文也讓小孩一起學）。lang=ko → TTS 用韓文語音
+    "yeongwonhi": ("영원히",  "영원히",   "永遠",   ["ㄩㄥˇ", "ㄩㄢˇ"], "ko"),
+    "kkaejil":    ("깨질",    "깨질",     "破掉",   ["ㄆㄛˋ", "ㄉㄧㄠˋ"], "ko"),
+    "sueomneun":  ("수 없는", "수 없는",  "不能",   ["ㄅㄨˋ", "ㄋㄥˊ"], "ko"),
 }
 
 # ---- 逐字時間軸：(key, 顯示文字, start, end)；顯示文字保留歌詞原樣與標點 ----
@@ -78,7 +82,10 @@ LINES = [
         W("up", "up", 25.46, 25.66), W("with", "with", 25.66, 25.78), W("our", "our", 25.78, 26.06),
         W("voices", "voices", 26.06, 26.76),
     ]},
-    {"ko": True, "text": "영원히 깨질 수 없는", "zh": "（韓文）永遠不會破碎", "s": 26.76, "e": 28.70},
+    {"lang": "ko", "words": [
+        W("yeongwonhi", "영원히", 26.76, 27.62), W("kkaejil", "깨질", 27.62, 27.94),
+        W("sueomneun", "수 없는", 27.94, 28.70),
+    ]},
     {"words": [
         W("gonna", "Gonna", 28.70, 29.32), W("be", "be,", 29.32, 29.58), W("gonna", "gonna", 29.64, 29.80),
         W("be", "be", 29.80, 30.08), W("golden", "golden", 30.10, 31.30),
@@ -89,9 +96,6 @@ def main():
     # 驗證：每個 key 都在 VOCAB、時間單調遞增
     last = 0.0
     for li, line in enumerate(LINES):
-        if line.get("ko"):
-            assert line["s"] >= last - 0.01, f"line{li} 時間倒退"
-            last = line["e"]; continue
         for w in line["words"]:
             assert w["k"] in VOCAB, f"缺單字卡：{w['k']}"
             assert w["s"] < w["e"], f"{w['t']} 起訖顛倒"
@@ -100,12 +104,17 @@ def main():
         line["s"] = line["words"][0]["s"]
         line["e"] = line["words"][-1]["e"]
 
-    vocab = {k: {"display": v[0], "say": v[1], "zh": v[2], "zy": v[3]} for k, v in VOCAB.items()}
+    vocab = {}
+    for k, v in VOCAB.items():
+        entry = {"display": v[0], "say": v[1], "zh": v[2], "zy": v[3]}
+        if len(v) > 4:
+            entry["lang"] = v[4]
+        vocab[k] = entry
     data = {"title": "Golden", "artist": "HUNTR/X", "duration": 30.85, "lines": LINES, "vocab": vocab}
     os.makedirs("tools/_src", exist_ok=True)
     with open("tools/_src/data.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
-    used = {w["k"] for l in LINES if not l.get("ko") for w in l["words"]}
+    used = {w["k"] for l in LINES for w in l["words"]}
     print(f"OK data.json：{len(LINES)} 行、{sum(len(l.get('words',[])) for l in LINES)} 字、{len(used)} 個單字卡（VOCAB {len(vocab)} 項，未用到：{set(vocab)-used or '無'}）")
 
 if __name__ == "__main__":
