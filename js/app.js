@@ -16,7 +16,7 @@ let wordEls = [];        // [{el, s, e, k}] 依時間排序
 let lineEls = [];        // [{el, s, e}]
 
 // --- 歌曲播放器（手動記 offset 才能暫停/續播/跳段）---
-let srcNode = null, playing = false, offset = 0, ctxStart = 0, manualStop = false;
+let srcNode = null, playing = false, offset = 0, ctxStart = 0;
 let segNode = null;      // 「歌裡怎麼唱」的片段播放節點
 let seqToken = 0;        // 取消過期的語音序列
 const learned = new Set(JSON.parse(localStorage.getItem(LS_KEY) || "[]"));
@@ -27,16 +27,18 @@ function play(from = offset) {
   stopSeg();
   if (playing) return;
   offset = Math.max(0, Math.min(from, songBuf.duration - 0.05));
-  srcNode = ctx.createBufferSource();
-  srcNode.buffer = songBuf;
-  srcNode.connect(ctx.destination);
-  srcNode.onended = () => {
-    if (manualStop) { manualStop = false; return; }
+  const node = ctx.createBufferSource();
+  node.buffer = songBuf;
+  node.connect(ctx.destination);
+  // 旗標綁在節點自己身上：快速連點時舊節點的 onended 不會誤傷新節點的狀態
+  node.onended = () => {
+    if (srcNode !== node || node._manual) return;
     playing = false;
     offset = songBuf.duration;
     onSongEnd();
   };
-  srcNode.start(0, offset);
+  srcNode = node;
+  node.start(0, offset);
   ctxStart = ctx.currentTime;
   playing = true;
   $("#playBtn").textContent = "❚❚";
@@ -47,7 +49,7 @@ function play(from = offset) {
 function pause() {
   if (!playing) return;
   offset = now();
-  manualStop = true;
+  srcNode._manual = true;
   try { srcNode.stop(); } catch { /* 已停止 */ }
   playing = false;
   $("#playBtn").textContent = "▶";
@@ -68,15 +70,15 @@ function playSegment(s, e) {
   segNode.start(0, from, Math.min(e + 0.3, songBuf.duration) - from);
 }
 
-/** 播單字/中文語音，回傳 Promise（播完 resolve；被新序列取代則不 resolve 也無妨） */
+/** 播單字/中文語音；resolve(true)=有播、resolve(false)=該語音缺檔 */
 function playVoice(kind, key) {
   return new Promise((res) => {
     const buf = voiceBuf[`${kind}/${key}`];
-    if (!buf) { res(); return; }
+    if (!buf) { res(false); return; }
     const n = ctx.createBufferSource();
     n.buffer = buf;
     n.connect(ctx.destination);
-    n.onended = res;
+    n.onended = () => res(true);
     n.start();
   });
 }
@@ -181,8 +183,11 @@ async function openCard(w) {
   // 自動：英文 → 停一下 → 中文
   const token = ++seqToken;
   $("#cardWord").classList.add("speaking");
-  await playVoice("w", w.k);
+  const spoke = await playVoice("w", w.k);
   $("#cardWord").classList.remove("speaking");
+  // 語音缺檔時給小孩看得懂的提示，不要靜默沒聲音
+  document.querySelector(".card-tap-hint").textContent =
+    spoke ? "點單字再聽一次 🔊" : "🔇 這個字的聲音沒載到，重新整理網頁再試";
   if (token !== seqToken) return;
   await new Promise((r) => setTimeout(r, 280));
   if (token !== seqToken) return;
@@ -216,15 +221,29 @@ function onSongEnd() {
 }
 
 // --- 載入流程 ---
+/** fetch 二進位檔：檢查 HTTP 狀態 + 15 秒逾時（弱網不讓小孩死等） */
+function fetchBin(url) {
+  const opt = "timeout" in AbortSignal ? { signal: AbortSignal.timeout(15000) } : {};
+  return fetch(url, opt).then((r) => {
+    if (!r.ok) throw new Error(`NET:${r.status} ${url}`);
+    return r.arrayBuffer();
+  });
+}
+
 async function loadAll(pw) {
   const fill = $("#loadFill");
   let done = 0;
   const total = 2 + 64; // data+song 解密 + 64 個語音
   const step = () => { done++; fill.style.width = `${Math.round((done / total) * 100)}%`; };
 
-  // 1) 解密資料（同時就是密碼驗證，失敗會 throw）
-  const dataRaw = await fetch("assets/data.bin").then((r) => r.arrayBuffer());
-  const dataPlain = await decryptSong(dataRaw, pw);
+  // 1) 解密資料——只有「解密失敗」才是密碼錯，網路失敗要分開講
+  const dataRaw = await fetchBin("assets/data.bin");
+  let dataPlain;
+  try {
+    dataPlain = await decryptSong(dataRaw, pw);
+  } catch {
+    throw new Error("PW_WRONG");
+  }
   data = JSON.parse(new TextDecoder().decode(dataPlain));
   step();
 
@@ -232,8 +251,8 @@ async function loadAll(pw) {
   $("#gate").hidden = true;
   $("#loading").hidden = false;
 
-  // 2) 解密 + 解碼歌曲
-  const songRaw = await fetch("assets/song.bin").then((r) => r.arrayBuffer());
+  // 2) 解密 + 解碼歌曲（此時密碼已驗證過，這裡失敗一律當載入問題）
+  const songRaw = await fetchBin("assets/song.bin");
   const songPlain = await decryptSong(songRaw, pw);
   songBuf = await ctx.decodeAudioData(songPlain);
   step();
@@ -243,10 +262,7 @@ async function loadAll(pw) {
   await Promise.all(
     keys.flatMap((k) => ["w", "z"].map(async (kind) => {
       try {
-        const raw = await fetch(`assets/${kind}/${k}.mp3`).then((r) => {
-          if (!r.ok) throw new Error(r.status);
-          return r.arrayBuffer();
-        });
+        const raw = await fetchBin(`assets/${kind}/${k}.mp3`);
         voiceBuf[`${kind}/${k}`] = await ctx.decodeAudioData(raw);
       } catch (e) {
         console.warn(`語音載入失敗 ${kind}/${k}`, e);
@@ -257,32 +273,48 @@ async function loadAll(pw) {
 }
 
 // --- 事件 ---
+let submitting = false;
 $("#gateForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
+  if (submitting) return; // 網路慢時小孩連點「進場」不重複載入
   const pw = $("#pw").value.trim();
   if (!pw) return;
   // iOS：必須在使用者手勢裡建立/喚醒 AudioContext
   if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
   ctx.resume();
   $("#gateErr").hidden = true;
+  submitting = true;
   try {
     await loadAll(pw);
   } catch (e) {
     console.warn("解鎖失敗", e);
+    const isPw = e && e.message === "PW_WRONG";
+    $("#gateErr").textContent = isPw
+      ? "密碼不對喔，再試一次！"
+      : "網路好像怪怪的，檢查一下 WiFi 再按一次進場！";
     const box = document.querySelector(".gate-box");
     box.classList.remove("shake");
     void box.offsetWidth;
     box.classList.add("shake");
     $("#gateErr").hidden = false;
-    $("#pw").value = "";
+    if (isPw) $("#pw").value = "";
     $("#loading").hidden = true;
     $("#gate").hidden = false;
     return;
+  } finally {
+    submitting = false;
   }
   renderLyrics();
   updateStars(false);
   $("#loading").hidden = true;
   $("#stage").hidden = false;
+});
+
+// 旋轉/改變視窗大小時，把目前這行重新捲到畫面中間
+window.addEventListener("resize", () => {
+  if (lastLineIdx >= 0 && !$("#stage").hidden) {
+    lineEls[lastLineIdx].el.scrollIntoView({ block: "center" });
+  }
 });
 
 $("#playBtn").addEventListener("click", () => {
