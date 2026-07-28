@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Golden 唱歌學英文</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="sky" aria-hidden="true">
+  <div class="starfield sf1"></div>
+  <div class="starfield sf2"></div>
+  <span class="bigstar" style="top:8%;left:12%">✦</span>
+  <span class="bigstar" style="top:18%;right:10%;animation-delay:.9s">✦</span>
+  <span class="bigstar" style="bottom:22%;left:7%;animation-delay:1.7s">✦</span>
+  <span class="bigstar" style="bottom:12%;right:16%;animation-delay:.4s">✦</span>
+  <div class="glow g1"></div>
+  <div class="glow g2"></div>
+</div>
+
+<!-- 密碼門 -->
+<section id="gate" class="screen">
+  <div class="gate-box">
+    <div class="gate-mic">🎤</div>
+    <h1 class="gate-title">Golden</h1>
+    <p class="gate-sub">唱歌學英文 ✨</p>
+    <form id="gateForm">
+      <input id="pw" type="password" inputmode="numeric" autocomplete="off" placeholder="通關密碼" aria-label="通關密碼">
+      <button type="submit" class="btn btn-gold btn-big">進 場 🎫</button>
+    </form>
+    <p id="gateErr" class="gate-err" hidden>密碼不對喔，再試一次！</p>
+  </div>
+</section>
+
+<!-- 載入中 -->
+<section id="loading" class="screen" hidden>
+  <div class="load-box">
+    <div class="load-star">⭐</div>
+    <p class="load-text">舞台準備中…</p>
+    <div class="load-bar"><div id="loadFill" class="load-fill"></div></div>
+  </div>
+</section>
+
+<!-- 主舞台 -->
+<section id="stage" class="screen stage" hidden>
+  <header class="topbar">
+    <div class="song-badge">🎵 Golden</div>
+    <div class="hint" id="hint">👆 點不會唸的字！</div>
+    <div class="starbox" id="starbox">⭐ <span id="starCount">0</span></div>
+  </header>
+
+  <main id="lyrics" class="lyrics" aria-label="歌詞"></main>
+
+  <footer class="ctrlbar">
+    <button id="playBtn" class="btn btn-play" aria-label="播放">▶</button>
+  </footer>
+</section>
+
+<!-- 單字學習卡 -->
+<div id="cardWrap" class="card-wrap" hidden>
+  <div class="card-backdrop" id="cardBackdrop"></div>
+  <div class="card" role="dialog" aria-modal="true">
+    <div class="card-star" id="cardStar" hidden>⭐ +1</div>
+    <button class="card-word" id="cardWord">golden</button>
+    <p class="card-tap-hint">點單字再聽一次 🔊</p>
+    <button class="card-zh" id="cardZh" aria-label="中文意思"></button>
+    <div class="card-btns">
+      <button class="btn btn-violet" id="btnSung">🎵 歌裡怎麼唱</button>
+      <button class="btn btn-gold" id="btnResume">▶ 繼續唱歌</button>
+    </div>
+  </div>
+</div>
+
+<!-- 唱完啦 -->
+<div id="fin" class="card-wrap" hidden>
+  <div class="card-backdrop"></div>
+  <div class="card fin-card">
+    <div class="fin-burst">🎉</div>
+    <h2 class="fin-title">唱完啦！</h2>
+    <p class="fin-stars">你學會了 <b id="finStars">0</b> 個單字 ⭐</p>
+    <button class="btn btn-gold btn-big" id="btnAgain">🎤 再唱一次</button>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
